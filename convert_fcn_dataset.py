@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 import logging
 import os
-
+import io
 import cv2
 import numpy as np
+import PIL.Image
 import tensorflow as tf
 from vgg import vgg_16
-
+from object_detection.utils import dataset_util
 
 flags = tf.app.flags
 flags.DEFINE_string('data_dir', '', 'Root directory to raw pet dataset.')
@@ -39,10 +40,25 @@ def image2label(im):
     return np.array(cm2lbl[idx])
 
 
-def dict_to_tf_example(data, label):
-    with open(data, 'rb') as inf:
+def dict_to_tf_example(img_path, label_path):
+    with open(img_path, 'rb') as inf:
         encoded_data = inf.read()
-    img_label = cv2.imread(label)
+        
+    with tf.gfile.GFile(img_path, 'rb') as fid:
+        encoded_jpg = fid.read()
+        encoded_jpg_io = io.BytesIO(encoded_jpg)
+        image = PIL.Image.open(encoded_jpg_io)
+        if image.format != 'JPEG':
+            raise ValueError('Image format not JPEG')
+
+    with tf.gfile.GFile(label_path, 'rb') as fid:
+        encoded_mask_png = fid.read()
+        encoded_png_io = io.BytesIO(encoded_mask_png)
+        mask = PIL.Image.open(encoded_png_io)
+        if mask.format != 'PNG':
+            raise ValueError('Mask format not PNG')
+
+    img_label = cv2.imread(label_path)
     img_mask = image2label(img_label)
     encoded_label = img_mask.astype(np.uint8).tobytes()
 
@@ -53,20 +69,26 @@ def dict_to_tf_example(data, label):
 
     # Your code here, fill the dict
     feature_dict = {
-        'image/height': None,
-        'image/width': None,
-        'image/filename': None,
-        'image/encoded': None,
-        'image/label': None,
-        'image/format': None,
+        'image/height': dataset_util.int64_feature(height),
+        'image/width': dataset_util.int64_feature(width),
+        'image/filename': dataset_util.bytes_feature(img_path.encode('utf8')),
+        'image/encoded': dataset_util.bytes_feature(encoded_data),
+        'image/label': dataset_util.bytes_feature(encoded_label),
+        'image/format': dataset_util.bytes_feature('jpeg'.encode('utf8')),
     }
     example = tf.train.Example(features=tf.train.Features(feature=feature_dict))
     return example
 
 
 def create_tf_record(output_filename, file_pars):
-    # Your code here
-    pass
+    writer = tf.python_io.TFRecordWriter(output_filename)
+    for idx, example in enumerate(file_pars):
+        if idx % 100 == 0:
+            logging.info('On image %d of %d', idx, len(list(file_pars)))
+        tf_example = dict_to_tf_example(example[0], example[1])
+        writer.write(tf_example.SerializeToString())
+
+    writer.close()
 
 
 def read_images_names(root, train=True):
