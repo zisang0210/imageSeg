@@ -50,7 +50,7 @@ def grayscale_to_voc_impl(input):
     return np.squeeze(VOC_COLORMAP[input])
 
 
-def bilinear_upsample_weights(factor, number_of_classes):
+def bilinear_upsample_weights(factor, number_of_classes,filter_name):
     """
     Create weights matrix for transposed convolution with bilinear filter
     initialization.
@@ -68,7 +68,7 @@ def bilinear_upsample_weights(factor, number_of_classes):
     for i in range(number_of_classes):
         weights[:, :, i, i] = upsample_kernel
 
-    return weights
+    return tf.Variable(weights, name=filter_name)
 
 
 _R_MEAN = 123.68
